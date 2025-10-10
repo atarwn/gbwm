@@ -1,4 +1,4 @@
-/* eowm - grid-based tiling window manager */
+/* gbwm - grid-based tiling window manager */
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xft/Xft.h>
@@ -29,6 +29,7 @@ struct Client {
     int x, y, w, h;
     int saved_x, saved_y, saved_w, saved_h;  // Saved position before fullscreen
     int isfullscreen;
+    int workspace;
     Client *next;
 };
 
@@ -57,7 +58,8 @@ static const char *col_sel = "#4a90e2";
 
 static Display *dpy;
 static Window root;
-static Client *clients = NULL;
+static Client *workspaces[9] = {NULL};  // 9 workspaces
+static int current_ws = 0;
 static Client *focused = NULL;
 static int sw, sh;
 static int overlay_mode = 0;
@@ -90,10 +92,13 @@ static void setfullscreen(Client *c, int fullscreen);
 static int sendevent(Client *c, Atom proto);
 static void updateborder(Client *c);
 static void find_next_free_cell(int *out_r, int *out_c);
+static void switchws(const Arg *arg);
+static void movewin_to_ws(const Arg *arg);
 
 // Commands
 static const char *termcmd[] = { "alacritty", NULL };
 static const char *menucmd[] = { "dmenu_run", NULL };
+static const char *scrotcmd[] = { "scrot", NULL };
 
 // Key bindings
 static Key keys[] = {
@@ -101,15 +106,38 @@ static Key keys[] = {
     { MOD,              XK_t,            enter_overlay,   {0} },
     { MOD,              XK_Return,       spawn,           {.v = termcmd} },
     { MOD,              XK_p,            spawn,           {.v = menucmd} },
+    { 0,                XK_Print,        spawn,           {.v = scrotcmd} },
     { MOD,              XK_q,            killclient,      {0} },
     { MOD,              XK_f,            toggle_fullscreen, {0} },
     { MOD,              XK_Tab,          cycle_focus,     {0} },
     { MOD|ShiftMask,    XK_q,            quit,            {0} },
+    
+    // Workspaces
+    { MOD,              XK_1,            switchws,        {.i = 0} },
+    { MOD,              XK_2,            switchws,        {.i = 1} },
+    { MOD,              XK_3,            switchws,        {.i = 2} },
+    { MOD,              XK_4,            switchws,        {.i = 3} },
+    { MOD,              XK_5,            switchws,        {.i = 4} },
+    { MOD,              XK_6,            switchws,        {.i = 5} },
+    { MOD,              XK_7,            switchws,        {.i = 6} },
+    { MOD,              XK_8,            switchws,        {.i = 7} },
+    { MOD,              XK_9,            switchws,        {.i = 8} },
+    
+    // Move window to workspace
+    { MOD|ShiftMask,    XK_1,            movewin_to_ws,   {.i = 0} },
+    { MOD|ShiftMask,    XK_2,            movewin_to_ws,   {.i = 1} },
+    { MOD|ShiftMask,    XK_3,            movewin_to_ws,   {.i = 2} },
+    { MOD|ShiftMask,    XK_4,            movewin_to_ws,   {.i = 3} },
+    { MOD|ShiftMask,    XK_5,            movewin_to_ws,   {.i = 4} },
+    { MOD|ShiftMask,    XK_6,            movewin_to_ws,   {.i = 5} },
+    { MOD|ShiftMask,    XK_7,            movewin_to_ws,   {.i = 6} },
+    { MOD|ShiftMask,    XK_8,            movewin_to_ws,   {.i = 7} },
+    { MOD|ShiftMask,    XK_9,            movewin_to_ws,   {.i = 8} },
 };
 
 // Event handlers
 static void buttonpress(XEvent *e) {
-    for (Client *c = clients; c; c = c->next)
+    for (Client *c = workspaces[current_ws]; c; c = c->next)
         if (c->win == e->xbutton.subwindow) {
             focus(c);
             break;
@@ -119,7 +147,7 @@ static void buttonpress(XEvent *e) {
 static void clientmessage(XEvent *e) {
     XClientMessageEvent *cme = &e->xclient;
     Client *c;
-    for (c = clients; c; c = c->next)
+    for (c = workspaces[current_ws]; c; c = c->next)
         if (c->win == cme->window)
             break;
     if (!c)
@@ -137,8 +165,9 @@ static void maprequest(XEvent *e) {
 
     Client *c = calloc(1, sizeof(Client));
     c->win = e->xmaprequest.window;
-    c->next = clients;
-    clients = c;
+    c->workspace = current_ws;
+    c->next = workspaces[current_ws];
+    workspaces[current_ws] = c;
 
     // ICCCM setup
     XSetWindowBorderWidth(dpy, c->win, border_width);
@@ -153,30 +182,35 @@ static void maprequest(XEvent *e) {
     arrange();
 }
 
-static void unmapnotify(XEvent *e) {
-    Client **p;
-    for (p = &clients; *p && (*p)->win != e->xunmap.window; p = &(*p)->next);
-    if (*p) {
-        Client *c = *p;
-        if (focused == c) {
-            focused = c->next ? c->next : (clients == c ? NULL : clients);
+static void removeclient(Window win) {
+    Client *c, **prev;
+    for (prev = &workspaces[current_ws]; (c = *prev); prev = &c->next) {
+        if (c->win == win) {
+            *prev = c->next;
+            if (focused == c) {
+                focused = workspaces[current_ws];
+                if (focused)
+                    focus(focused);
+            }
+            free(c);
+            arrange();
+            return;
         }
-        *p = c->next;
-        free(c);
-        if (focused)
-            focus(focused);
-        arrange();
     }
 }
 
+static void unmapnotify(XEvent *e) {
+    removeclient(e->xunmap.window);
+}
+
 static void destroynotify(XEvent *e) {
-    unmapnotify(e);
+    removeclient(e->xdestroywindow.window);
 }
 
 static void enternotify(XEvent *e) {
     if (e->xcrossing.mode != NotifyNormal || e->xcrossing.detail == NotifyInferior)
         return;
-    for (Client *c = clients; c; c = c->next)
+    for (Client *c = workspaces[current_ws]; c; c = c->next)
         if (c->win == e->xcrossing.window) {
             focus(c);
             break;
@@ -263,7 +297,7 @@ static int is_cell_free(int r, int c, int cell_w, int cell_h) {
     int cell_y = padding + r * (cell_h + padding);
 
     // Check if any window overlaps with this cell
-    for (Client *cl = clients; cl; cl = cl->next) {
+    for (Client *cl = workspaces[current_ws]; cl; cl = cl->next) {
         if (cl->isfullscreen) continue;
 
         // Check for overlap
@@ -301,7 +335,7 @@ static void find_next_free_cell(int *out_r, int *out_c) {
     int cell_x = padding;
     int cell_y = padding;
 
-    for (Client *cl = clients; cl; cl = cl->next) {
+    for (Client *cl = workspaces[current_ws]; cl; cl = cl->next) {
         if (cl->isfullscreen) continue;
         if (cl->x == cell_x && cl->y == cell_y &&
             cl->w == cell_w && cl->h == cell_h) {
@@ -312,7 +346,7 @@ static void find_next_free_cell(int *out_r, int *out_c) {
                     int check_y = padding + r * (cell_h + padding);
 
                     int found_1x1 = 0;
-                    for (Client *check = clients; check; check = check->next) {
+                    for (Client *check = workspaces[current_ws]; check; check = check->next) {
                         if (check->isfullscreen) continue;
                         if (check->x == check_x && check->y == check_y &&
                             check->w == cell_w && check->h == cell_h) {
@@ -338,9 +372,9 @@ static void find_next_free_cell(int *out_r, int *out_c) {
 }
 
 static void arrange(void) {
-    if (!clients) return;
+    if (!workspaces[current_ws]) return;
 
-    if (!focused) focused = clients;
+    if (!focused) focused = workspaces[current_ws];
 
     if (focused->isfullscreen) {
         return;
@@ -359,7 +393,7 @@ static void arrange(void) {
     }
 
     // Update all borders
-    for (Client *c = clients; c; c = c->next)
+    for (Client *c = workspaces[current_ws]; c; c = c->next)
         updateborder(c);
 }
 
@@ -512,6 +546,66 @@ static void process_overlay_input(void) {
     resize(focused, x, y, w, h);
 }
 
+// Workspace functions
+static void switchws(const Arg *arg) {
+    int ws = arg->i;
+    if (ws < 0 || ws >= 9 || ws == current_ws) return;
+    
+    current_ws = ws;
+    
+    // Hide all windows from all workspaces
+    for (int i = 0; i < 9; i++) {
+        for (Client *c = workspaces[i]; c; c = c->next) {
+            XUnmapWindow(dpy, c->win);
+        }
+    }
+    
+    // Show current workspace windows
+    for (Client *c = workspaces[current_ws]; c; c = c->next) {
+        XMapWindow(dpy, c->win);
+    }
+    
+    focused = workspaces[current_ws];
+    if (focused) focus(focused);
+    arrange();
+}
+
+static void movewin_to_ws(const Arg *arg) {
+    int ws = arg->i;
+    if (!focused || ws < 0 || ws >= 9 || ws == current_ws) return;
+    
+    Client *moving = focused;
+    
+    // Remove from current workspace
+    Client **prev;
+    for (prev = &workspaces[current_ws]; *prev; prev = &(*prev)->next) {
+        if (*prev == moving) {
+            *prev = moving->next;
+            break;
+        }
+    }
+    
+    // Add to target workspace
+    moving->workspace = ws;
+    moving->next = workspaces[ws];
+    workspaces[ws] = moving;
+    moving->isfullscreen = 0;  // Reset fullscreen state
+    
+    // Hide the window we just moved
+    XUnmapWindow(dpy, moving->win);
+    
+    // Update focus to next available window in current workspace
+    focused = workspaces[current_ws];
+    if (focused) {
+        focus(focused);
+    } else {
+        focused = NULL;
+    }
+    
+    // Re-arrange current workspace
+    arrange();
+}
+
 // Action functions
 static int sendevent(Client *c, Atom proto) {
     int n;
@@ -608,15 +702,15 @@ static void quit(const Arg *arg) {
 }
 
 static void cycle_focus(const Arg *arg) {
-    if (!clients) return;
+    if (!workspaces[current_ws]) return;
 
     if (!focused) {
-        focus(clients);
+        focus(workspaces[current_ws]);
         return;
     }
 
     Client *next = focused->next;
-    if (!next) next = clients;
+    if (!next) next = workspaces[current_ws];
 
     focus(next);
 }
