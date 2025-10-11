@@ -4,6 +4,7 @@
 #include <X11/Xft/Xft.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/cursorfont.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +56,7 @@ static const char *col_border_focused = "#4a90e2";
 static const char *col_bg = "#000000";
 static const char *col_fg = "#ffffff";
 static const char *col_sel = "#4a90e2";
+static const char *overlay_font = "monospace:size=48";
 
 static Display *dpy;
 static Window root;
@@ -745,7 +747,7 @@ static void setup_colors(void) {
     XftColorAllocName(dpy, visual, cmap, col_fg, &xft_col_fg);
     XftColorAllocName(dpy, visual, cmap, col_sel, &xft_col_sel);
 
-    font = XftFontOpenName(dpy, DefaultScreen(dpy), "monospace:size=48");
+    font = XftFontOpenName(dpy, DefaultScreen(dpy), overlay_font);
 
     // Allocate border colors
     XColor color;
@@ -776,6 +778,8 @@ int main(void) {
     sw = DisplayWidth(dpy, DefaultScreen(dpy));
     sh = DisplayHeight(dpy, DefaultScreen(dpy));
     root = RootWindow(dpy, DefaultScreen(dpy));
+    Cursor cursor = XCreateFontCursor(dpy, XC_left_ptr);
+    XDefineCursor(dpy, root, cursor);
 
     setup_colors();
     setup_icccm();
