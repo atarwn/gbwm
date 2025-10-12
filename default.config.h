@@ -26,6 +26,7 @@ static const char *col_bg = "#000000";
 static const char *col_fg = "#ffffff";
 static const char *col_sel = "#4a90e2";
 static const char *overlay_font = "LiberationMono:size=48";
+static const char *root_bg = "#000000";
 
 // Commands
 static const char *termcmd[] = { "st", NULL };

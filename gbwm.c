@@ -424,7 +424,7 @@ static void enter_overlay(const Arg *arg) {
     if (!overlay_win) {
         XSetWindowAttributes wa = {
             .override_redirect = True,
-            .background_pixel = BlackPixel(dpy, DefaultScreen(dpy)),
+            .background_pixel = xft_col_bg.pixel,
             .event_mask = ExposureMask | KeyPressMask
         };
         overlay_win = XCreateWindow(dpy, root, 0, 0, sw, sh, 0,
@@ -707,6 +707,17 @@ static void setup_icccm(void) {
     wm_take_focus = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
 }
 
+static void setrootbackground(void) {
+    Colormap cmap = DefaultColormap(dpy, DefaultScreen(dpy));
+    XColor color;
+
+    if (XParseColor(dpy, cmap, root_bg, &color) &&
+        XAllocColor(dpy, cmap, &color)) {
+        XSetWindowBackground(dpy, root, color.pixel);
+        XClearWindow(dpy, root);
+    }
+}
+
 int main(void) {
     signal(SIGCHLD, sigchld);
     if (!(dpy = XOpenDisplay(NULL))) {
@@ -722,6 +733,7 @@ int main(void) {
     XDefineCursor(dpy, root, cursor);
 
     setup_colors();
+    setrootbackground();
     setup_icccm();
 
     XSelectInput(dpy, root,
