@@ -20,17 +20,26 @@ static const char grid_chars[GRID_ROWS][GRID_COLS+1] = {
 // Configuration
 static const int padding = 8;
 static const int border_width = 2;
-static const char *col_border_normal = "#444444";
-static const char *col_border_focused = "#4a90e2";
-static const char *col_bg = "#000000";
-static const char *col_fg = "#ffffff";
-static const char *col_sel = "#4a90e2";
-static const char *overlay_font = "LiberationMono:size=48";
-static const char *root_bg = "#000000";
+static const char col_border_normal[] = "#5a3f47";
+static const char col_border_focused[] = "#ffb4a9";
+static const char col_bg[] = "#1f1a1b";
+static const char col_fg[] = "#ebe0e1";
+static const char col_sel[] = "#5a3f47";
+static const char overlay_font[] = "LiberationMono:size=48";
+static const char dmenu_font[]   = "LiberationMono:size=12"; // You can cut-out this line if you don't use dmenu
+static const char root_bg[] = "#1f1a1b";
 
 // Commands
 static const char *termcmd[] = { "st", NULL };
-static const char *menucmd[] = { "dmenu_run", NULL };
+static const char *menucmd[] = {
+    "dmenu_run",
+    "-fn", dmenu_font,
+    "-nb", col_bg,
+    "-nf", col_fg,
+    "-sb", col_sel,
+    "-sf", col_border_focused,
+    NULL
+};
 static const char *scrotcmd[] = { "scrot", NULL };
 
 // Key bindings
