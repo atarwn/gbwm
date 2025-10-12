@@ -17,7 +17,7 @@ Keybinds
 | Mod + f           | fullscreen |
 | Mod + q           | kill window |
 | Mod + Shift + Q   | quit |
-| Mod + t           | tile window |
+| Mod + a           | tile window |
 | Mod + Return      | spawn alacritty |
 | Mod + p           | spawn dmenu\_run |
 | Mouse hover       | focus |
