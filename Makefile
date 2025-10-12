@@ -6,6 +6,9 @@ PREFIX ?= /usr/local
 $(TARGET):
 	$(CC) $(CFLAGS) gbwm.c -o $@ -lX11 -lXft -I/usr/include/freetype2/
 
+config.h: default.config.h
+	cp default.config.h config.h
+
 .PHONY: install uninstall clean
 
 install: $(TARGET)
