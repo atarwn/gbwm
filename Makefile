@@ -1,6 +1,8 @@
 TARGET = gbwm
 CC ?= cc
-CFLAGS ?= -O2 -Wall
+HGVERSION = $(shell hg log -r . --template "{latesttag}-{latesttagdistance}-{node|short}" 2>/dev/null)
+VERSION = $(if $(HGVERSION),$(HGVERSION),dev)
+CFLAGS ?= -O2 -Wall -DVERSION=\"$(VERSION)\"
 PREFIX ?= /usr/local
 
 $(TARGET):
