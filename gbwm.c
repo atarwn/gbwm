@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 /* gbwm - grid-based tiling window manager */
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -5,6 +6,7 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
+#include <X11/extensions/XTest.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -12,6 +14,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <time.h>
 
 typedef struct Client Client;
 struct Client {
@@ -58,7 +61,7 @@ static Atom wm_protocols, wm_delete_window, wm_state, wm_take_focus;
 // Forward decls
 static void arrange(void);
 static void resize(Client *c, int x, int y, int w, int h);
-static void focus(Client *c);
+static void focus(Client *c, int warp);
 static void spawn(const Arg *arg);
 static void killclient(const Arg *arg);
 static void toggle_fullscreen(const Arg *arg);
@@ -75,6 +78,7 @@ static void updateborder(Client *c);
 static void find_next_free_cell(int *out_r, int *out_c);
 static void switchws(const Arg *arg);
 static void movewin_to_ws(const Arg *arg);
+static void die(const char *fmt, ...);
 
 #include "config.h"
 
@@ -82,7 +86,7 @@ static void movewin_to_ws(const Arg *arg);
 static void buttonpress(XEvent *e) {
 	for (Client *c = workspaces[current_ws]; c; c = c->next)
 		if (c->win == e->xbutton.subwindow) {
-			focus(c);
+			focus(c, 1);
 			break;
 		}
 }
@@ -121,7 +125,7 @@ static void maprequest(XEvent *e) {
 	XChangeProperty(dpy, c->win, wm_state, wm_state, 32, PropModeReplace, (unsigned char *)data, 2);
 
 	XMapWindow(dpy, c->win);
-	focus(c);
+	focus(c, 1);
 	arrange();
 }
 
@@ -133,7 +137,7 @@ static void removeclient(Window win) {
 			if (focused == c) {
 				focused = workspaces[current_ws];
 				if (focused)
-					focus(focused);
+					focus(focused, 1);
 			}
 			free(c);
 			arrange();
@@ -155,7 +159,7 @@ static void enternotify(XEvent *e) {
 		return;
 	for (Client *c = workspaces[current_ws]; c; c = c->next)
 		if (c->win == e->xcrossing.window) {
-			focus(c);
+			focus(c, 0);
 			break;
 		}
 }
@@ -192,7 +196,11 @@ static void keypress(XEvent *e) {
 		} else if (overlay_input[1] == 0) {
 			overlay_input[1] = ch;
 			draw_overlay();
-			usleep(150000);
+			struct timespec ts = {
+				.tv_sec = 0,
+				.tv_nsec = 150000 * 1000
+			};
+			nanosleep(&ts, NULL);
 			process_overlay_input();
 			hide_overlay();
 		}
@@ -220,7 +228,7 @@ static void updateborder(Client *c) {
 	XSetWindowBorder(dpy, c->win, c == focused ? border_focused : border_normal);
 }
 
-static void focus(Client *c) {
+static void focus(Client *c, int warp) {
 	if (!c) return;
 
 	Client *old = focused;
@@ -233,6 +241,17 @@ static void focus(Client *c) {
 	XRaiseWindow(dpy, c->win);
 	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
 	sendevent(c, wm_take_focus);
+
+	if (warp && !c->isfullscreen) {
+		int cursor_x = c->x + c->w - 16;
+		int cursor_y = c->y + c->h - 16;
+		if (cursor_x < 0) cursor_x = 0;
+		if (cursor_y < 0) cursor_y = 0;
+		if (cursor_x >= sw) cursor_x = sw - 1;
+		if (cursor_y >= sh) cursor_y = sh - 1;
+
+		XWarpPointer(dpy, None, root, 0, 0, 0, 0, cursor_x, cursor_y);
+	}
 }
 
 static int is_cell_free(int r, int c, int cell_w, int cell_h) {
@@ -487,6 +506,7 @@ static void process_overlay_input(void) {
 	int h = rows_span * cell_h + (rows_span - 1) * padding;
 
 	resize(focused, x, y, w, h);
+	if (focused) focus(focused, 1);
 }
 
 // Workspace functions
@@ -509,7 +529,7 @@ static void switchws(const Arg *arg) {
 	}
 	
 	focused = workspaces[current_ws];
-	if (focused) focus(focused);
+	if (focused) focus(focused, 1);
 	arrange();
 }
 
@@ -540,7 +560,7 @@ static void movewin_to_ws(const Arg *arg) {
 	// Update focus to next available window in current workspace
 	focused = workspaces[current_ws];
 	if (focused) {
-		focus(focused);
+		focus(focused, 0);
 	} else {
 		focused = NULL;
 	}
@@ -635,8 +655,7 @@ static void spawn(const Arg *arg) {
 			close(ConnectionNumber(dpy));
 		setsid();
 		execvp(((char **)arg->v)[0], (char **)arg->v);
-		fprintf(stderr, "eowm: execvp %s failed\n", ((char **)arg->v)[0]);
-		exit(1);
+		die("execvp %s failed", ((char **)arg->v)[0]);
 	}
 }
 
@@ -648,14 +667,14 @@ static void cycle_focus(const Arg *arg) {
 	if (!workspaces[current_ws]) return;
 
 	if (!focused) {
-		focus(workspaces[current_ws]);
+		focus(workspaces[current_ws], 1);
 		return;
 	}
 
 	Client *next = focused->next;
 	if (!next) next = workspaces[current_ws];
 
-	focus(next);
+	focus(next, 1);
 }
 
 static void grabkeys(void) {
