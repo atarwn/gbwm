@@ -221,7 +221,7 @@ static void keypress(XEvent *e) {
 // Core logic
 static void resize(Client *c, int x, int y, int w, int h) {
 	c->x = x; c->y = y; c->w = w; c->h = h;
-	XMoveResizeWindow(dpy, c->win, x, y, w, h);
+	XMoveResizeWindow(dpy, c->win, x, y, w - 2 * border_width, h - 2 * border_width);
 }
 
 static void updateborder(Client *c) {

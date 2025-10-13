@@ -5,7 +5,7 @@ VERSION = $(if $(HGVERSION),$(HGVERSION),dev)
 CFLAGS ?= -O3 -std=c99 -Wall -DVERSION=\"$(VERSION)\"
 PREFIX ?= /usr/local
 
-$(TARGET):
+build: config.h
 	$(CC) $(CFLAGS) gbwm.c -o $@ -lX11 -lXft -I/usr/include/freetype2/ -lXtst
 
 config.h: default.config.h
