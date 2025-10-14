@@ -126,8 +126,9 @@ static void maprequest(XEvent *e) {
 	XChangeProperty(dpy, c->win, wm_state, wm_state, 32, PropModeReplace, (unsigned char *)data, 2);
 
 	XMapWindow(dpy, c->win);
-	focus(c, 1);
+	focus(c, 0);
 	arrange();
+	focus(c, 1);
 }
 
 static void removeclient(Window win) {
