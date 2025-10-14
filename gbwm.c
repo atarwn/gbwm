@@ -72,6 +72,7 @@ static void draw_overlay(void);
 static void hide_overlay(void);
 static void quit(const Arg *arg);
 static void cycle_focus(const Arg *arg);
+static void cycle_focus_backward(const Arg *arg);
 static void grabkeys(void);
 static void setfullscreen(Client *c, int fullscreen);
 static int sendevent(Client *c, Atom proto);
@@ -701,6 +702,37 @@ static void cycle_focus(const Arg *arg) {
 	if (!next) next = workspaces[current_ws];
 
 	focus(next, 1);
+}
+
+static void cycle_focus_backward(const Arg *arg) {
+	if (!workspaces[current_ws]) return;
+
+	if (!focused) {
+		// If there is no focus, focus on the last window
+		Client *last = workspaces[current_ws];
+		while (last && last->next)
+			last = last->next;
+		focus(last, 1);
+		return;
+	}
+
+	// Find the previous window
+	Client *prev = NULL;
+	for (Client *c = workspaces[current_ws]; c; c = c->next) {
+		if (c->next == focused) {
+			prev = c;
+			break;
+		}
+	}
+
+	// If focused is the first, then prev = the last
+	if (!prev) {
+		prev = workspaces[current_ws];
+		while (prev && prev->next)
+			prev = prev->next;
+	}
+
+	focus(prev, 1);
 }
 
 static void grabkeys(void) {

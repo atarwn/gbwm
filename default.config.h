@@ -52,6 +52,7 @@ static Key keys[] = {
     { MOD,              XK_q,            killclient,      {0} },
     { MOD,              XK_f,            toggle_fullscreen, {0} },
     { MOD,              XK_Tab,          cycle_focus,     {0} },
+    { MOD|ShiftMask, XK_Tab,          cycle_focus_backward, {0} },
     { MOD|ShiftMask,    XK_q,            quit,            {0} },
     
     // Workspaces
