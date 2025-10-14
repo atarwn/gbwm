@@ -177,6 +177,15 @@ static void keypress(XEvent *e) {
 			hide_overlay();
 			return;
 		}
+		if (k == XK_BackSpace) {
+			if (overlay_input[1] != 0) {
+				overlay_input[1] = 0;
+			} else if (overlay_input[0] != 0) {
+				overlay_input[0] = 0;
+			}
+			draw_overlay();
+			return;
+		}
 
 		char ch = 0;
 		if (k >= '0' && k <= '9') ch = (char)k;
