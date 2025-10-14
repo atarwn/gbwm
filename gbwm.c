@@ -43,6 +43,7 @@ typedef struct {
 static Display *dpy;
 static Window root;
 static Client *workspaces[9] = {NULL};  // 9 workspaces
+static Client *last_focused[9] = {NULL};
 static int current_ws = 0;
 static Client *focused = NULL;
 static int sw, sh;
@@ -243,8 +244,10 @@ static void focus(Client *c, int warp) {
 	Client *old = focused;
 	focused = c;
 
-	if (old && old != c)
+	if (old && old != c) {
 		updateborder(old);
+		last_focused[old->workspace] = old;
+	}
 
 	updateborder(c);
 	XRaiseWindow(dpy, c->win);
@@ -523,6 +526,11 @@ static void switchws(const Arg *arg) {
 	int ws = arg->i;
 	if (ws < 0 || ws >= 9 || ws == current_ws) return;
 	
+	if (focused) {
+		last_focused[current_ws] = focused;
+	}
+
+
 	current_ws = ws;
 	
 	// Hide all windows from all workspaces
@@ -537,8 +545,16 @@ static void switchws(const Arg *arg) {
 		XMapWindow(dpy, c->win);
 	}
 	
-	focused = workspaces[current_ws];
-	if (focused) focus(focused, 1);
+	// Restore the last focus on this WS, otherwise the first one
+	focused = last_focused[current_ws];
+	if (!focused) focused = workspaces[current_ws];
+
+	if (focused) {
+		focus(focused, 1);
+	} else {
+		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
+	}
+
 	arrange();
 }
 
