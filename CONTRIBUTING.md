@@ -19,3 +19,12 @@ If gbwm ever gets contributors, here's a short memo with the rules:
    added remembering for last focused window
    feat: moved config out of the main file
    ```
+
+3. Mercurial is the main VCS.  
+   The canonical repo is at https://hg.qwa.su/gbwm  
+   GitHub is a read-only mirror - do not send PRs.
+
+   Submit changes as GPG signed patches (e.g. `hg export` output) to <a@qwa.su>.  
+   If you want push access to your own namespace on hg.qwa.su, include your public SSH key.
+
+   You can find my GPG key on keyserver.ubuntu.com by this fingerprint: `5B60C1D1A8254465`
