@@ -58,11 +58,11 @@ static Key keys[] = {
     // { 0,            XF86XK_AudioMute,          spawn,     {.v = mutevol} },
     { 0,                XK_Print,        spawn,           {.v = scrotcmd} },
     // { 0|ShiftMask,      XK_Print,        spawn,           {.v = scrotselcmd} },
-    { MOD,              XK_q,            killclient,      {0} },
+    { MOD|ShiftMask,    XK_q,            killclient,      {0} },
     { MOD,              XK_f,            toggle_fullscreen, {0} },
     { MOD,              XK_Tab,          cycle_focus,     {0} },
-    { MOD|ShiftMask, XK_Tab,          cycle_focus_backward, {0} },
-    { MOD|ShiftMask,    XK_q,            quit,            {0} },
+    { MOD|ShiftMask,    XK_Tab,          cycle_focus_backward, {0} },
+    { MOD|ShiftMask,    XK_m,            quit,            {0} },
     
     // Workspaces
     { MOD,              XK_1,            switchws,        {.i = 0} },
