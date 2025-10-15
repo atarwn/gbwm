@@ -40,7 +40,13 @@ static const char *menucmd[] = {
     "-sf", col_border_focused,
     NULL
 };
-static const char *scrotcmd[] = { "scrot", NULL };
+// static const char *upbrightness[]   = { "brightnessctl", "set", "10%+", NULL };
+// static const char *downbrightness[] = { "brightnessctl", "set", "10%-", NULL };
+// static const char *incvol[] = {"wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+", NULL};
+// static const char *decvol[] = {"wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-", NULL};
+// static const char *mutevol[] = {"wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", NULL};
+static const char *scrotcmd[] = { "/bin/sh", "-c", "scrot ~/Pictures/Screenshots/$(date +%Y.%m.%d_%H.%M).png", NULL };
+// static const char *scrotselcmd[] = { "/bin/sh", "-c", "scrot -s ~/Pictures/Screenshots/$(date +%Y.%m.%d_%H.%M).png", NULL };
 
 // Key bindings
 static Key keys[] = {
@@ -48,7 +54,13 @@ static Key keys[] = {
     { MOD,              XK_a,            enter_overlay,   {0} },
     { MOD,              XK_Return,       spawn,           {.v = termcmd} },
     { MOD,              XK_p,            spawn,           {.v = menucmd} },
+    // { 0,            XF86XK_MonBrightnessUp,    spawn,     {.v = upbrightness } },
+    // { 0,            XF86XK_MonBrightnessDown,  spawn,     {.v = downbrightness } },
+    // { 0,            XF86XK_AudioLowerVolume,   spawn,     {.v = decvol} },	
+    // { 0,            XF86XK_AudioRaiseVolume,   spawn,     {.v = incvol} },
+    // { 0,            XF86XK_AudioMute,          spawn,     {.v = mutevol} },
     { 0,                XK_Print,        spawn,           {.v = scrotcmd} },
+    // { 0|ShiftMask,      XK_Print,        spawn,           {.v = scrotselcmd} },
     { MOD,              XK_q,            killclient,      {0} },
     { MOD,              XK_f,            toggle_fullscreen, {0} },
     { MOD,              XK_Tab,          cycle_focus,     {0} },
