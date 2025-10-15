@@ -7,6 +7,7 @@ Semi-stack and semi-tile window manager: Grid-Based window manager
 
 If you're looking for original `eowm` project, see this repo: https://github.com/atarwn/eowm
 
+Also a [git mirror](https://github.com/atarwn/gbwm) is available
 
 Keybinds
 -------
