@@ -1,9 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
-
 // Modifier
 #define MOD Mod4Mask
 

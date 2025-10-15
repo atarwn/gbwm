@@ -5,6 +5,7 @@
 #include <X11/Xft/Xft.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
+#include <X11/XF86keysym.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XTest.h>
 #include <stdio.h>
@@ -816,10 +817,6 @@ int main(int argc, char *argv[]) {
 		die("cannot open X11 display (is X running?)");
 
 	signal(SIGCHLD, sigchld);
-	if (!(dpy = XOpenDisplay(NULL))) {
-		fprintf(stderr, "eowm: cannot open display\n");
-		exit(1);
-	}
 	XSetErrorHandler(xerror_handler);
 
 	sw = DisplayWidth(dpy, DefaultScreen(dpy));
