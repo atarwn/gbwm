@@ -2,6 +2,8 @@ If gbwm ever gets contributors, here's a short memo with the rules:
 
 1. Do not combine multiple unrelated changes in a single commit.
    If your commit touches several independent features or fixes and isn't logically atomic, split it.
+   
+   Minor related fixes—such as typos, formatting, preparatory refactoring tightly coupled to a new feature, or immediate bug fixes for issues introduced in the same PR—are acceptable in a single commit if they are logically cohesive and splitting them would reduce clarity or create broken intermediate states.
 
 2. Use natural-language commit prefixes.
    Examples of valid prefixes:
