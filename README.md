@@ -5,6 +5,8 @@
 
 Semi-stack and semi-tile window manager: Grid-Based window manager
 
+![4x7 layout is not default btw](imag.png)
+
 Keybinds
 -------
 
