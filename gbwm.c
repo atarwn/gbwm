@@ -8,6 +8,7 @@
 #include <X11/XF86keysym.h>
 #include <X11/cursorfont.h>
 #include <X11/extensions/XTest.h>
+#include <X11/extensions/Xrandr.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -27,6 +28,13 @@ struct Client {
 	Client *next;
 };
 
+typedef struct Monitor Monitor;
+struct Monitor {
+	int x, y, w, h;
+	int num;
+	Monitor *next;
+};
+
 typedef union {
 	int i;
 	unsigned int ui;
@@ -43,6 +51,7 @@ typedef struct {
 
 static Display *dpy;
 static Window root;
+static int screen;
 static Client *workspaces[9] = {NULL};  // 9 workspaces
 static Client *last_focused[9] = {NULL};
 static int current_ws = 0;
@@ -57,11 +66,17 @@ static XftFont *font = NULL;
 static XftColor xft_col_bg, xft_col_fg, xft_col_sel;
 static unsigned long border_normal, border_focused;
 
+// Multi-monitor support
+static Monitor *monitors = NULL;
+static Monitor *current_monitor = NULL;
+static int monitor_count = 0;
+
 // ICCCM atoms
 static Atom wm_protocols, wm_delete_window, wm_state, wm_take_focus;
 
 // Forward decls
 static void arrange(void);
+static void arrange_monitor(Monitor *mon);
 static void resize(Client *c, int x, int y, int w, int h);
 static void focus(Client *c, int warp);
 static void spawn(const Arg *arg);
@@ -78,10 +93,16 @@ static void grabkeys(void);
 static void setfullscreen(Client *c, int fullscreen);
 static int sendevent(Client *c, Atom proto);
 static void updateborder(Client *c);
-static void find_next_free_cell(int *out_r, int *out_c);
+static void find_next_free_cell(Monitor *mon, int *out_r, int *out_c);
 static void switchws(const Arg *arg);
 static void movewin_to_ws(const Arg *arg);
 static void die(const char *fmt, ...);
+static void focus_monitor(const Arg *arg);
+static void movewin_to_monitor(const Arg *arg);
+static void update_monitors(void);
+static Monitor* get_monitor_at(int x, int y);
+static Monitor* get_monitor_for_window(Client *c);
+static void screenchange(XEvent *e);
 
 #include "config.h"
 
@@ -231,6 +252,159 @@ static void keypress(XEvent *e) {
 	}
 }
 
+static void screenchange(XEvent *e) {
+	XRRUpdateConfiguration(e);
+	sw = DisplayWidth(dpy, screen);
+	sh = DisplayHeight(dpy, screen);
+	update_monitors();
+	arrange();
+}
+
+// Monitor management
+static void update_monitors(void) {
+	Monitor *m;
+	while (monitors) {
+		m = monitors->next;
+		free(monitors);
+		monitors = m;
+	}
+	monitors = NULL;
+	current_monitor = NULL;
+	monitor_count = 0;
+
+	XRRScreenResources *sr = XRRGetScreenResources(dpy, root);
+	if (!sr) return;
+
+	for (int i = 0; i < sr->ncrtc; i++) {
+		XRRCrtcInfo *ci = XRRGetCrtcInfo(dpy, sr, sr->crtcs[i]);
+		if (!ci || ci->noutput == 0 || ci->width == 0 || ci->height == 0) {
+			if (ci) XRRFreeCrtcInfo(ci);
+			continue;
+		}
+
+		Monitor *mon = calloc(1, sizeof(Monitor));
+		mon->num = monitor_count++;
+		mon->x = ci->x;
+		mon->y = ci->y;
+		mon->w = ci->width;
+		mon->h = ci->height;
+		mon->next = monitors;
+		monitors = mon;
+
+		XRRFreeCrtcInfo(ci);
+	}
+	XRRFreeScreenResources(sr);
+
+	if (!monitors) {
+		monitors = calloc(1, sizeof(Monitor));
+		monitors->x = 0;
+		monitors->y = 0;
+		monitors->w = sw;
+		monitors->h = sh;
+		monitors->num = 0;
+		monitor_count = 1;
+	}
+	current_monitor = monitors;
+}
+
+static Monitor* get_monitor_at(int x, int y) {
+	for (Monitor *m = monitors; m; m = m->next) {
+		if (x >= m->x && x < m->x + m->w && y >= m->y && y < m->y + m->h)
+			return m;
+	}
+	return monitors;
+}
+
+static Monitor* get_monitor_for_window(Client *c) {
+	return get_monitor_at(c->x + c->w / 2, c->y + c->h / 2);
+}
+
+static void focus_monitor(const Arg *arg) {
+	if (!monitors || monitor_count <= 1) return;
+	
+	int direction = arg->i;
+	Monitor *target = NULL;
+	Monitor *m = monitors;
+	
+	if (direction > 0) {
+		target = current_monitor ? (current_monitor->next ? current_monitor->next : monitors) : monitors;
+	} else {
+		Monitor *last = monitors;
+		while (last && last->next) last = last->next;
+		
+		if (!current_monitor || current_monitor == monitors) {
+			target = last;
+		} else {
+			m = monitors;
+			while (m && m->next != current_monitor) m = m->next;
+			target = m;
+		}
+	}
+	
+	if (!target) target = monitors;
+	current_monitor = target;
+	
+	Client *to_focus = NULL;
+	for (Client *c = workspaces[current_ws]; c; c = c->next) {
+		if (c->isfullscreen) continue;
+		
+		Monitor *win_mon = get_monitor_for_window(c);
+		if (win_mon == target) {
+			to_focus = c;
+			break;
+		}
+	}
+	
+	if (to_focus) {
+		focus(to_focus, 1);
+	} else {
+		XWarpPointer(dpy, None, root, 0, 0, 0, 0, 
+					 target->x + target->w / 2, 
+					 target->y + target->h / 2);
+		XFlush(dpy);
+	}
+}
+
+static void movewin_to_monitor(const Arg *arg) {
+	if (!focused || !monitors || monitor_count <= 1) return;
+	
+	int direction = arg->i;
+	Monitor *current = get_monitor_for_window(focused);
+	Monitor *target = NULL;
+	
+	if (direction > 0) {
+		target = current ? (current->next ? current->next : monitors) : monitors;
+	} else {
+		Monitor *last = monitors;
+		while (last && last->next) last = last->next;
+		
+		if (!current || current == monitors) {
+			target = last;
+		} else {
+			Monitor *m = monitors;
+			while (m && m->next != current) m = m->next;
+			target = m;
+		}
+	}
+	
+	if (!target || target == current) return;
+	
+	// Find a free cell on the target monitor
+	int r, c;
+	find_next_free_cell(target, &r, &c);
+	
+	int cell_w = (target->w - padding * (GRID_COLS + 1)) / GRID_COLS;
+	int cell_h = (target->h - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+	
+	int x = target->x + padding + c * (cell_w + padding);
+	int y = target->y + padding + r * (cell_h + padding);
+	
+	resize(focused, x, y, cell_w, cell_h);
+	
+	arrange();
+	focus(focused, 1);
+}
+
 // Core logic
 static void resize(Client *c, int x, int y, int w, int h) {
 	c->x = x; c->y = y; c->w = w; c->h = h;
@@ -257,6 +431,9 @@ static void focus(Client *c, int warp) {
 	XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
 	sendevent(c, wm_take_focus);
 
+	// Update current monitor based on focused window
+	current_monitor = get_monitor_for_window(c);
+
 	if (warp && !c->isfullscreen) {
 		int cursor_x = c->x + c->w - 16;
 		int cursor_y = c->y + c->h - 16;
@@ -269,9 +446,9 @@ static void focus(Client *c, int warp) {
 	}
 }
 
-static int is_cell_free(int r, int c, int cell_w, int cell_h) {
-	int cell_x = padding + c * (cell_w + padding);
-	int cell_y = padding + r * (cell_h + padding);
+static int is_cell_free(Monitor *mon, int r, int c, int cell_w, int cell_h) {
+	int cell_x = mon->x + padding + c * (cell_w + padding);
+	int cell_y = mon->y + padding + r * (cell_h + padding);
 
 	// Check if any window overlaps with this cell
 	for (Client *cl = workspaces[current_ws]; cl; cl = cl->next) {
@@ -293,14 +470,14 @@ static int is_cell_free(int r, int c, int cell_w, int cell_h) {
 	return 1;  // Cell is free
 }
 
-static void find_next_free_cell(int *out_r, int *out_c) {
-	int cell_w = (sw - padding * (GRID_COLS + 1)) / GRID_COLS;
-	int cell_h = (sh - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+static void find_next_free_cell(Monitor *mon, int *out_r, int *out_c) {
+	int cell_w = (mon->w - padding * (GRID_COLS + 1)) / GRID_COLS;
+	int cell_h = (mon->h - padding * (GRID_ROWS + 1)) / GRID_ROWS;
 
 	// First pass: look for any completely free cell
 	for (int r = 0; r < GRID_ROWS; r++) {
 		for (int c = 0; c < GRID_COLS; c++) {
-			if (is_cell_free(r, c, cell_w, cell_h)) {
+			if (is_cell_free(mon, r, c, cell_w, cell_h)) {
 				*out_r = r;
 				*out_c = c;
 				return;
@@ -309,8 +486,8 @@ static void find_next_free_cell(int *out_r, int *out_c) {
 	}
 
 	// Second pass: no free space found, check top-left for 1x1 windows
-	int cell_x = padding;
-	int cell_y = padding;
+	int cell_x = mon->x + padding;
+	int cell_y = mon->y + padding;
 
 	for (Client *cl = workspaces[current_ws]; cl; cl = cl->next) {
 		if (cl->isfullscreen) continue;
@@ -319,8 +496,8 @@ static void find_next_free_cell(int *out_r, int *out_c) {
 			// Found a 1x1 window at top-left, find next free cell
 			for (int r = 0; r < GRID_ROWS; r++) {
 				for (int c = 0; c < GRID_COLS; c++) {
-					int check_x = padding + c * (cell_w + padding);
-					int check_y = padding + r * (cell_h + padding);
+					int check_x = mon->x + padding + c * (cell_w + padding);
+					int check_y = mon->y + padding + r * (cell_h + padding);
 
 					int found_1x1 = 0;
 					for (Client *check = workspaces[current_ws]; check; check = check->next) {
@@ -353,20 +530,19 @@ static void arrange(void) {
 
 	if (!focused) focused = workspaces[current_ws];
 
-	if (focused->isfullscreen) {
+	if (focused && focused->isfullscreen) {
 		return;
 	}
 
-	// Default window location - find next free cell
-	int cell_w = (sw - padding * (GRID_COLS + 1)) / GRID_COLS;
-	int cell_h = (sh - padding * (GRID_ROWS + 1)) / GRID_ROWS;
-
-	if (focused->w == 0 || focused->h == 0) {
-		int r, c;
-		find_next_free_cell(&r, &c);
-		int x = padding + c * (cell_w + padding);
-		int y = padding + r * (cell_h + padding);
-		resize(focused, x, y, cell_w, cell_h);
+	// Arrange windows on each monitor
+	if (current_monitor) {
+		arrange_monitor(current_monitor);
+	}
+	
+	for (Monitor *mon = monitors; mon; mon = mon->next) {
+		if (mon != current_monitor) {
+			arrange_monitor(mon);
+		}
 	}
 
 	// Update all borders
@@ -374,13 +550,34 @@ static void arrange(void) {
 		updateborder(c);
 }
 
+static void arrange_monitor(Monitor *mon) {
+	if (!mon) return;
+	
+	// Default window location - find next free cell on this monitor
+	int cell_w = (mon->w - padding * (GRID_COLS + 1)) / GRID_COLS;
+	int cell_h = (mon->h - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+
+	if (focused && (focused->w == 0 || focused->h == 0)) {
+		Monitor *focus_mon = current_monitor ? current_monitor : mon;
+		int r, c;
+		find_next_free_cell(focus_mon, &r, &c);
+		int x = focus_mon->x + padding + c * (cell_w + padding);
+		int y = focus_mon->y + padding + r * (cell_h + padding);
+		resize(focused, x, y, cell_w, cell_h);
+	}
+}
+
 static void draw_overlay(void) {
 	if (!overlay_win) return;
 
 	XClearWindow(dpy, overlay_win);
 
-	int cell_w = (sw - padding * (GRID_COLS + 1)) / GRID_COLS;
-	int cell_h = (sh - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+	// Use current monitor for overlay if available
+	Monitor *mon = current_monitor ? current_monitor : monitors;
+	if (!mon) return;
+
+	int cell_w = (mon->w - padding * (GRID_COLS + 1)) / GRID_COLS;
+	int cell_h = (mon->h - padding * (GRID_ROWS + 1)) / GRID_ROWS;
 
 	int r1 = -1, c1 = -1, r2 = -1, c2 = -1;
 	if (overlay_input[0]) {
@@ -396,6 +593,7 @@ static void draw_overlay(void) {
 
 	for (int r = 0; r < GRID_ROWS; r++) {
 		for (int c = 0; c < GRID_COLS; c++) {
+			// Use LOCAL coordinates (relative to overlay_win, not root)
 			int x = padding + c * (cell_w + padding);
 			int y = padding + r * (cell_h + padding);
 
@@ -442,7 +640,9 @@ static void draw_overlay(void) {
 				overlay_input[1] ? overlay_input[1] : ' ');
 
 		if (font && xftdraw) {
-			XftDrawStringUtf8(xftdraw, &xft_col_fg, font, 20, sh - 20,
+			// Use LOCAL coordinates
+			XftDrawStringUtf8(xftdraw, &xft_col_fg, font, 
+							20, mon->h - 20,
 							(FcChar8*)status, strlen(status));
 		}
 	}
@@ -456,13 +656,16 @@ static void enter_overlay(const Arg *arg) {
 	overlay_mode = 1;
 	memset(overlay_input, 0, sizeof(overlay_input));
 
+	Monitor *mon = current_monitor ? current_monitor : monitors;
+	if (!mon) return;
+
 	if (!overlay_win) {
 		XSetWindowAttributes wa = {
 			.override_redirect = True,
 			.background_pixel = xft_col_bg.pixel,
 			.event_mask = ExposureMask | KeyPressMask
 		};
-		overlay_win = XCreateWindow(dpy, root, 0, 0, sw, sh, 0,
+		overlay_win = XCreateWindow(dpy, root, mon->x, mon->y, mon->w, mon->h, 0,
 			CopyFromParent, InputOutput, CopyFromParent,
 			CWOverrideRedirect | CWBackPixel | CWEventMask, &wa);
 
@@ -476,6 +679,10 @@ static void enter_overlay(const Arg *arg) {
 		Atom atom = XInternAtom(dpy, "_NET_WM_WINDOW_OPACITY", False);
 		XChangeProperty(dpy, overlay_win, atom, XA_CARDINAL, 32,
 					   PropModeReplace, (unsigned char *)&opacity, 1);
+	} else {
+		// Reposition overlay to current monitor
+		XMoveResizeWindow(dpy, overlay_win, mon->x, mon->y, mon->w, mon->h);
+		XClearWindow(dpy, overlay_win);  // Force redraw
 	}
 
 	XMapRaised(dpy, overlay_win);
@@ -512,11 +719,14 @@ static void process_overlay_input(void) {
 	int cols_span = c2 - c1 + 1;
 	int rows_span = r2 - r1 + 1;
 
-	int cell_w = (sw - padding * (GRID_COLS + 1)) / GRID_COLS;
-	int cell_h = (sh - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+	Monitor *mon = current_monitor ? current_monitor : monitors;
+	if (!mon) return;
 
-	int x = padding + c1 * (cell_w + padding);
-	int y = padding + r1 * (cell_h + padding);
+	int cell_w = (mon->w - padding * (GRID_COLS + 1)) / GRID_COLS;
+	int cell_h = (mon->h - padding * (GRID_ROWS + 1)) / GRID_ROWS;
+
+	int x = mon->x + padding + c1 * (cell_w + padding);
+	int y = mon->y + padding + r1 * (cell_h + padding);
 	int w = cols_span * cell_w + (cols_span - 1) * padding;
 	int h = rows_span * cell_h + (rows_span - 1) * padding;
 
@@ -532,7 +742,6 @@ static void switchws(const Arg *arg) {
 	if (focused) {
 		last_focused[current_ws] = focused;
 	}
-
 
 	current_ws = ws;
 	
@@ -635,6 +844,9 @@ static void killclient(const Arg *arg) {
 static void setfullscreen(Client *c, int fullscreen) {
 	if (!c) return;
 
+	Monitor *mon = get_monitor_for_window(c);
+	if (!mon) return;
+
 	if (fullscreen && !c->isfullscreen) {
 		// Save current position before going fullscreen
 		c->saved_x = c->x;
@@ -644,9 +856,9 @@ static void setfullscreen(Client *c, int fullscreen) {
 
 		c->isfullscreen = 1;
 
-		// Remove border and set to full screen
+		// Remove border and set to full screen on current monitor
 		XSetWindowBorderWidth(dpy, c->win, 0);
-		resize(c, 0, 0, sw, sh);
+		resize(c, mon->x, mon->y, mon->w, mon->h);
 		XRaiseWindow(dpy, c->win);
 
 	} else if (!fullscreen && c->isfullscreen) {
@@ -688,6 +900,22 @@ static void spawn(const Arg *arg) {
 }
 
 static void quit(const Arg *arg) {
+	// Cleanup
+	while (monitors) {
+		Monitor *next = monitors->next;
+		free(monitors);
+		monitors = next;
+	}
+	
+	for (int i = 0; i < 9; i++) {
+		while (workspaces[i]) {
+			Client *next = workspaces[i]->next;
+			free(workspaces[i]);
+			workspaces[i] = next;
+		}
+	}
+	
+	XCloseDisplay(dpy);
 	exit(0);
 }
 
@@ -819,19 +1047,29 @@ int main(int argc, char *argv[]) {
 	signal(SIGCHLD, sigchld);
 	XSetErrorHandler(xerror_handler);
 
-	sw = DisplayWidth(dpy, DefaultScreen(dpy));
-	sh = DisplayHeight(dpy, DefaultScreen(dpy));
-	root = RootWindow(dpy, DefaultScreen(dpy));
+	screen = DefaultScreen(dpy);
+	sw = DisplayWidth(dpy, screen);
+	sh = DisplayHeight(dpy, screen);
+	root = RootWindow(dpy, screen);
 	Cursor cursor = XCreateFontCursor(dpy, XC_left_ptr);
 	XDefineCursor(dpy, root, cursor);
 
 	setup_colors();
 	setrootbackground();
 	setup_icccm();
+	update_monitors();
+	
+	if (!current_monitor && monitors) {
+		current_monitor = monitors;
+	}
+
+	// Enable RandR screen change notifications
+	XRRSelectInput(dpy, root, RRScreenChangeNotifyMask);
 
 	XSelectInput(dpy, root,
 		SubstructureRedirectMask | SubstructureNotifyMask |
-		EnterWindowMask | LeaveWindowMask | FocusChangeMask);
+		EnterWindowMask | LeaveWindowMask | FocusChangeMask |
+		StructureNotifyMask | PropertyChangeMask);
 
 	grabkeys();
 
@@ -847,6 +1085,11 @@ int main(int argc, char *argv[]) {
 			case EnterNotify: enternotify(&ev); break;
 			case KeyPress: keypress(&ev); break;
 			case Expose: expose(&ev); break;
+		}
+		
+		// Handle RandR screen change events
+		if (ev.type == RRNotify + RRScreenChangeNotify) {
+			screenchange(&ev);
 		}
 	}
 

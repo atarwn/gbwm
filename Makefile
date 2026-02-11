@@ -1,23 +1,39 @@
-TARGET = gbwm
-CC ?= cc
-HGVERSION = $(shell hg log -r . --template "{latesttag}-{latesttagdistance}-{node|short}" 2>/dev/null)
-VERSION = $(if $(HGVERSION),$(HGVERSION),dev)
-CFLAGS ?= -O3 -std=c99 -Wall -DVERSION=\"$(VERSION)\"
-PREFIX ?= /usr/local
+# gbwm - grid-based window manager with multi-monitor support
+# See LICENSE file for copyright and license details.
 
-$(TARGET): config.h
-	$(CC) $(CFLAGS) gbwm.c -o $@ -lX11 -lXft -I/usr/include/freetype2/ -lXtst
+include config.mk
 
-config.h: default.config.h
-	cp default.config.h config.h
+SRC = gbwm.c
+OBJ = ${SRC:.c=.o}
 
-.PHONY: install uninstall clean
+all: options gbwm
 
-install: $(TARGET)
-	install -Dm755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+options:
+	@echo gbwm build options:
+	@echo "CFLAGS   = ${CFLAGS}"
+	@echo "LDFLAGS  = ${LDFLAGS}"
+	@echo "CC       = ${CC}"
 
-uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+.c.o:
+	${CC} -c ${CFLAGS} $<
+
+${OBJ}: config.h config.mk
+
+config.h:
+	cp config.def.h $@
+
+gbwm: ${OBJ}
+	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f $(TARGET)
+	rm -f gbwm ${OBJ}
+
+install: all
+	mkdir -p ${DESTDIR}${PREFIX}/bin
+	cp -f gbwm ${DESTDIR}${PREFIX}/bin
+	chmod 755 ${DESTDIR}${PREFIX}/bin/gbwm
+
+uninstall:
+	rm -f ${DESTDIR}${PREFIX}/bin/gbwm
+
+.PHONY: all options clean install uninstall
