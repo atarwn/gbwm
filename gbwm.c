@@ -25,6 +25,7 @@ struct Client {
 	int saved_x, saved_y, saved_w, saved_h;  // Saved position before fullscreen
 	int isfullscreen;
 	int workspace;
+	int mapped;  // Track if window is actually visible
 	Client *next;
 };
 
@@ -63,7 +64,7 @@ static Window overlay_win = 0;
 static GC gc;
 static XftDraw *xftdraw = NULL;
 static XftFont *font = NULL;
-static XftColor xft_col_bg, xft_col_fg, xft_col_sel;
+static XftColor xft_col_background, xft_col_foreground, xft_col_selection;
 static unsigned long border_normal, border_focused;
 
 // Multi-monitor support
@@ -149,6 +150,7 @@ static void maprequest(XEvent *e) {
 	XChangeProperty(dpy, c->win, wm_state, wm_state, 32, PropModeReplace, (unsigned char *)data, 2);
 
 	XMapWindow(dpy, c->win);
+	c->mapped = 1;
 	focus(c, 0);
 	arrange();
 	focus(c, 1);
@@ -159,6 +161,7 @@ static void removeclient(Window win) {
 	for (prev = &workspaces[current_ws]; (c = *prev); prev = &c->next) {
 		if (c->win == win) {
 			*prev = c->next;
+			c->mapped = 0;
 			if (focused == c) {
 				focused = workspaces[current_ws];
 				if (focused)
@@ -182,8 +185,13 @@ static void destroynotify(XEvent *e) {
 static void enternotify(XEvent *e) {
 	if (e->xcrossing.mode != NotifyNormal || e->xcrossing.detail == NotifyInferior)
 		return;
+	
+	// Ignore synthetic events and events during grab
+	if (e->xcrossing.mode == NotifyGrab || e->xcrossing.mode == NotifyUngrab)
+		return;
+	
 	for (Client *c = workspaces[current_ws]; c; c = c->next)
-		if (c->win == e->xcrossing.window) {
+		if (c->win == e->xcrossing.window && c->mapped) {
 			focus(c, 0);
 			break;
 		}
@@ -408,7 +416,7 @@ static void movewin_to_monitor(const Arg *arg) {
 // Core logic
 static void resize(Client *c, int x, int y, int w, int h) {
 	c->x = x; c->y = y; c->w = w; c->h = h;
-	XMoveResizeWindow(dpy, c->win, x, y, w - 2 * border_width, h - 2 * border_width);
+	XMoveResizeWindow(dpy, c->win, x, y, w, h);
 }
 
 static void updateborder(Client *c) {
@@ -612,11 +620,11 @@ static void draw_overlay(void) {
 			}
 
 			if (is_selected) {
-				XSetForeground(dpy, gc, xft_col_sel.pixel);
+				XSetForeground(dpy, gc, xft_col_selection.pixel);
 				XFillRectangle(dpy, overlay_win, gc, x, y, cell_w, cell_h);
 			}
 
-			XSetForeground(dpy, gc, xft_col_fg.pixel);
+			XSetForeground(dpy, gc, xft_col_foreground.pixel);
 			XDrawRectangle(dpy, overlay_win, gc, x, y, cell_w, cell_h);
 
 			if (font && xftdraw) {
@@ -627,7 +635,7 @@ static void draw_overlay(void) {
 				int tx = x + (cell_w - extents.width) / 2;
 				int ty = y + (cell_h - extents.height) / 2 + extents.y;
 
-				XftDrawStringUtf8(xftdraw, &xft_col_fg, font, tx, ty,
+				XftDrawStringUtf8(xftdraw, &xft_col_foreground, font, tx, ty,
 								(FcChar8*)txt, strlen(txt));
 			}
 		}
@@ -641,7 +649,7 @@ static void draw_overlay(void) {
 
 		if (font && xftdraw) {
 			// Use LOCAL coordinates
-			XftDrawStringUtf8(xftdraw, &xft_col_fg, font, 
+			XftDrawStringUtf8(xftdraw, &xft_col_foreground, font, 
 							20, mon->h - 20,
 							(FcChar8*)status, strlen(status));
 		}
@@ -662,7 +670,7 @@ static void enter_overlay(const Arg *arg) {
 	if (!overlay_win) {
 		XSetWindowAttributes wa = {
 			.override_redirect = True,
-			.background_pixel = xft_col_bg.pixel,
+			.background_pixel = xft_col_background.pixel,
 			.event_mask = ExposureMask | KeyPressMask
 		};
 		overlay_win = XCreateWindow(dpy, root, mon->x, mon->y, mon->w, mon->h, 0,
@@ -749,12 +757,14 @@ static void switchws(const Arg *arg) {
 	for (int i = 0; i < 9; i++) {
 		for (Client *c = workspaces[i]; c; c = c->next) {
 			XUnmapWindow(dpy, c->win);
+			c->mapped = 0;
 		}
 	}
 	
 	// Show current workspace windows
 	for (Client *c = workspaces[current_ws]; c; c = c->next) {
 		XMapWindow(dpy, c->win);
+		c->mapped = 1;
 	}
 	
 	// Restore the last focus on this WS, otherwise the first one
@@ -793,6 +803,7 @@ static void movewin_to_ws(const Arg *arg) {
 	
 	// Hide the window we just moved
 	XUnmapWindow(dpy, moving->win);
+	moving->mapped = 0;
 	
 	// Update focus to next available window in current workspace
 	focused = workspaces[current_ws];
@@ -990,9 +1001,9 @@ static void setup_colors(void) {
 	Visual *visual = DefaultVisual(dpy, DefaultScreen(dpy));
 	Colormap cmap = DefaultColormap(dpy, DefaultScreen(dpy));
 
-	XftColorAllocName(dpy, visual, cmap, col_bg, &xft_col_bg);
-	XftColorAllocName(dpy, visual, cmap, col_fg, &xft_col_fg);
-	XftColorAllocName(dpy, visual, cmap, col_sel, &xft_col_sel);
+	XftColorAllocName(dpy, visual, cmap, col_background, &xft_col_background);
+	XftColorAllocName(dpy, visual, cmap, col_foreground, &xft_col_foreground);
+	XftColorAllocName(dpy, visual, cmap, col_selection, &xft_col_selection);
 
 	font = XftFontOpenName(dpy, DefaultScreen(dpy), overlay_font);
 

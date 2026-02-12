@@ -7,9 +7,9 @@ static const unsigned int border_width = 2;
 static const unsigned int padding = 10;
 
 /* colors */
-static const char col_bg[]            = "#1e1e2e";
-static const char col_fg[]            = "#cdd6f4";
-static const char col_sel[]           = "#89b4fa";
+static const char col_background[]    = "#1e1e2e";
+static const char col_foreground[]    = "#cdd6f4";
+static const char col_selection[]     = "#89b4fa";
 static const char col_border_normal[] = "#313244";
 static const char col_border_focused[]= "#89b4fa";
 static const char root_bg[]           = "#1e1e2e";
